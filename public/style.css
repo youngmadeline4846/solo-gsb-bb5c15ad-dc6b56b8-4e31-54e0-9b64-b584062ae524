@@ -327,6 +327,47 @@ textarea { resize: vertical; }
 #panelErrors li { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
 #panelPreview svg { max-height: 75vh; }
 
+/* 压印路径模式 */
+.path-stats .rate { color: #15803d; font-weight: 700; }
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+.field select:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+  border-color: var(--accent);
+}
+#pathPreview svg { max-height: 75vh; }
+.legend i.line-arrow {
+  width: 16px;
+  height: 0;
+  border-top: 3px solid #2563eb;
+  display: inline-block;
+  position: relative;
+}
+.legend i.line-arrow::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -4px;
+  border-left: 6px solid #1d4ed8;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+.legend i.dot.path-start-dot { background: #16a34a; }
+.legend .step-num {
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 14px;
+}
+.panel-legend .swatch.path-line { border: none; border-top: 3px solid #2563eb; background: transparent; }
+.panel-legend .swatch.path-start { background: #16a34a; border: 2px solid #16a34a; }
+
 #qcErrors li[data-line] { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
 #qcPreview svg { max-height: 70vh; }
 

@@ -15,26 +15,34 @@
   var tabLayout = document.getElementById('tabLayout');
   var tabPanel = document.getElementById('tabPanel');
   var tabQc = document.getElementById('tabQc');
+  var tabPath = document.getElementById('tabPath');
   var viewLayout = document.getElementById('viewLayout');
   var viewPanel = document.getElementById('viewPanel');
   var viewQc = document.getElementById('viewQc');
+  var viewPath = document.getElementById('viewPath');
 
   function setMode(mode) {
     tabLayout.classList.toggle('active', mode === 'layout');
     tabPanel.classList.toggle('active', mode === 'panel');
     var isQc = mode === 'qc';
+    var isPath = mode === 'path';
     tabQc.classList.toggle('active', isQc);
+    tabPath.classList.toggle('active', isPath);
     tabLayout.setAttribute('aria-selected', String(mode === 'layout'));
     tabPanel.setAttribute('aria-selected', String(mode === 'panel'));
     tabQc.setAttribute('aria-selected', String(isQc));
+    tabPath.setAttribute('aria-selected', String(isPath));
     viewLayout.hidden = mode !== 'layout';
     viewPanel.hidden = mode !== 'panel';
     viewQc.hidden = !isQc;
+    viewPath.hidden = !isPath;
     if (isQc) refreshBaselineBox();
+    if (isPath) refreshPathBaselineBox();
   }
   tabLayout.addEventListener('click', function () { setMode('layout'); });
   tabPanel.addEventListener('click', function () { setMode('panel'); });
   tabQc.addEventListener('click', function () { setMode('qc'); });
+  tabPath.addEventListener('click', function () { setMode('path'); });
 
   /* ================= 排版模式 ================= */
 
@@ -117,6 +125,7 @@
           btnSvg.disabled = false;
           btnJson.disabled = false;
           if (!viewQc.hidden) refreshBaselineBox();
+          if (!viewPath.hidden) refreshPathBaselineBox();
         } else {
           lastResult = null;
           statsBox.hidden = true;
@@ -275,6 +284,7 @@
       btnPanelJson.disabled = false;
       // 若用户停留在质检页，立即刷新基准区（按钮可用性/标签摘要随最新拼版更新）
       if (!viewQc.hidden) refreshBaselineBox();
+      if (!viewPath.hidden) refreshPathBaselineBox();
     } else {
       lastPanel = null;
       panelStatsBox.hidden = true;
@@ -632,6 +642,242 @@
   btnQcSvg.addEventListener('click', function () {
     if (lastQc) download('embossing-qc-overlay.svg', 'image/svg+xml;charset=utf-8', lastQc.svg);
   });
+
+  /* ================= 压印路径模式 ================= */
+
+  var pathUseLayout = document.getElementById('pathUseLayout');
+  var pathUsePanel = document.getElementById('pathUsePanel');
+  var pathBaseline = document.getElementById('pathBaseline');
+  var pathStartMode = document.getElementById('pathStartMode');
+  var pathCoordBox = document.getElementById('pathCoordBox');
+  var pathIndexBox = document.getElementById('pathIndexBox');
+  var pathStartX = document.getElementById('pathStartX');
+  var pathStartY = document.getElementById('pathStartY');
+  var pathStartIndex = document.getElementById('pathStartIndex');
+  var pathRun = document.getElementById('pathRun');
+  var pathErrors = document.getElementById('pathErrors');
+  var pathStats = document.getElementById('pathStats');
+  var pathPreview = document.getElementById('pathPreview');
+  var pathLegend = document.getElementById('pathLegend');
+  var btnPathCsv = document.getElementById('pathDownloadCsv');
+  var btnPathSvg = document.getElementById('pathDownloadSvg');
+
+  var lastPath = null;
+  var pathResultDots = null; // 生成当前路径所用的 dots 引用，基准更新后用于判定结果是否过期
+  // 当前路径凸点来源：'layout'=最近单标签排版；'panel'=最近多标签拼版
+  var pathBaselineSource = 'layout';
+
+  function activePathBaseline() {
+    return pathBaselineSource === 'panel' ? lastPanelBaseline : lastBaseline;
+  }
+
+  function syncStartModeUi() {
+    var isIndex = pathStartMode.value === 'index';
+    pathCoordBox.hidden = isIndex;
+    pathIndexBox.hidden = !isIndex;
+  }
+  pathStartMode.addEventListener('change', syncStartModeUi);
+
+  // 切换基准来源：刷新基准条并清掉上一次路径结果，避免预览/CSV 与基准错配
+  function selectPathBaselineSource(source) {
+    pathBaselineSource = source;
+    pathUseLayout.classList.toggle('active', source === 'layout');
+    pathUsePanel.classList.toggle('active', source === 'panel');
+    pathUseLayout.setAttribute('aria-pressed', String(source === 'layout'));
+    pathUsePanel.setAttribute('aria-pressed', String(source === 'panel'));
+    clearPathResult('已切换基准，请重新点击「生成压印路径」');
+    refreshPathBaselineBox();
+  }
+  pathUseLayout.addEventListener('click', function () { selectPathBaselineSource('layout'); });
+  pathUsePanel.addEventListener('click', function () { selectPathBaselineSource('panel'); });
+
+  function clearPathResult(placeholder) {
+    lastPath = null;
+    pathResultDots = null;
+    pathStats.hidden = true;
+    pathLegend.hidden = true;
+    pathErrors.hidden = true;
+    btnPathCsv.disabled = true;
+    btnPathSvg.disabled = true;
+    pathPreview.innerHTML = '<p class="placeholder">' + (placeholder || '') + '</p>';
+  }
+
+  function refreshPathBaselineBox() {
+    pathUseLayout.disabled = !lastBaseline;
+    pathUsePanel.disabled = !lastPanelBaseline;
+    pathUseLayout.title = lastBaseline ? '以最近一次成功单标签排版的凸点为输入' : '请先在「排版模式」完成一次成功排版';
+    pathUsePanel.title = lastPanelBaseline ? '以最近一次成功拼版展平的全部凸点为输入' : '尚无成功拼版，请先在「多标签拼版」完成一次成功拼版';
+    pathUseLayout.classList.toggle('active', pathBaselineSource === 'layout');
+    pathUsePanel.classList.toggle('active', pathBaselineSource === 'panel');
+
+    var base = activePathBaseline();
+    // 基准更新后（排版/拼版重新成功）上一轮路径结果已过期：禁用下载并提示重新生成
+    if (lastPath && (!base || base.dots !== pathResultDots)) {
+      lastPath = null;
+      pathResultDots = null;
+      btnPathCsv.disabled = true;
+      btnPathSvg.disabled = true;
+      pathStats.hidden = true;
+      pathLegend.hidden = true;
+      pathPreview.innerHTML = '<p class="placeholder">凸点基准已更新，请重新点击「生成压印路径」</p>';
+    }
+    if (!base) {
+      pathBaseline.className = 'baseline warn';
+      pathBaseline.innerHTML = pathBaselineSource === 'panel'
+        ? '尚无成功拼版：请先切换到「多标签拼版」完成一次成功拼版（拼版失败不会生成基准）。'
+        : '尚无成功排版：请先切换到「排版模式」完成一次成功排版。';
+      return;
+    }
+    var overLimit = base.dots.length > EmbossPath.MAX_POINTS;
+    var limitTip = overLimit
+      ? '<br><b>当前 ' + base.dots.length + ' 个凸点，超过 ' + EmbossPath.MAX_POINTS +
+        ' 个上限，无法生成路径；请缩小板材内容或拆分拼版。</b>'
+      : '';
+    if (pathBaselineSource === 'panel') {
+      var chips = base.labels.map(function (l) {
+        var cls = l.rotation === 90 ? 'rot90' : 'rot0';
+        return '<span class="label-chip ' + cls + '" title="' + escapeHtml(l.text) + '">#' +
+          l.index + (l.rotation === 90 ? ' ⟳90°' : '') + '</span>';
+      }).join(' ');
+      pathBaseline.className = 'baseline ok' + (overLimit ? ' warn' : '');
+      pathBaseline.innerHTML =
+        '路径输入（<b>多标签拼版</b>）：最近一次成功拼版共 <b>' + base.labelCount + '</b> 条标签' +
+        '（<b>' + base.rotatedCount + '</b> 条旋转 90°），展平 <b>' + base.dots.length +
+        '</b> 个凸点（保留 label 元数据），板材 ' +
+        base.params.plateWidth + ' × ' + base.params.plateHeight + ' mm。' + limitTip +
+        '<br><span class="label-chips">' + chips + '</span>';
+    } else {
+      pathBaseline.className = 'baseline ok' + (overLimit ? ' warn' : '');
+      pathBaseline.innerHTML =
+        '路径输入（<b>单标签排版</b>）：最近一次成功排版「<b>' + escapeHtml(base.text || '（空白标签）') +
+        '</b>」共 <b>' + base.dots.length + '</b> 个凸点，板材 ' +
+        base.params.plateWidth + ' × ' + base.params.plateHeight + ' mm。' + limitTip;
+    }
+    // 序号模式输入框范围随基准点数更新
+    pathStartIndex.max = String(base.dots.length);
+    if (Number(pathStartIndex.value) > base.dots.length) pathStartIndex.value = '1';
+  }
+
+  function renderPathErrors(errors) {
+    pathErrors.innerHTML = '';
+    var ul = document.createElement('ul');
+    errors.forEach(function (e) {
+      var li = document.createElement('li');
+      li.textContent = e.message;
+      ul.appendChild(li);
+    });
+    pathErrors.appendChild(ul);
+    pathErrors.hidden = false;
+  }
+
+  function renderPathStats(r, base) {
+    var s = r.stats;
+    var source = pathBaselineSource === 'panel'
+      ? '拼版展平 <b>' + base.labelCount + '</b> 条标签 / '
+      : '';
+    var startDesc = r.params.mode === 'index'
+      ? '首个凸点序号 <b>#' + r.params.startIndex + '</b>（首步空移 0）'
+      : '压印机起点 <b>(' + r.params.startX + ', ' + r.params.startY + ') mm</b>';
+    pathStats.innerHTML =
+      source + '<b>' + s.pointCount + '</b> 个凸点，' + startDesc +
+      '；作业顺序首点 <b>#' + s.firstStep + '</b>、末点 <b>#' + s.lastStep + '</b><br>' +
+      '优化前空移总长 <b>' + s.beforeTotalMm + '</b> mm → 优化后 <b class="rate">' + s.afterTotalMm +
+      '</b> mm，节省 <b class="rate">' + s.savedMm + '</b> mm（<b class="rate">' + s.savedPercent +
+      '%</b>）；2-opt 执行 <b>' + s.roundsUsed + '</b> / ' + s.maxRounds + ' 轮' +
+      (s.improved ? '' : '（最近邻路线已为局部最优，无严格缩短反转）');
+    pathStats.hidden = false;
+    pathLegend.hidden = false;
+  }
+
+  function handlePathResult(r) {
+    var base = activePathBaseline();
+    if (r.ok) {
+      // 安全兜底：每个凸点恰好访问一次、步数等于点数
+      var seen = Object.create(null);
+      var valid = r.steps.length === base.dots.length && r.order.every(function (idx) {
+        if (seen[idx]) return false;
+        seen[idx] = true;
+        return idx >= 1 && idx <= base.dots.length;
+      });
+      if (!valid) {
+        lastPath = null;
+        pathResultDots = null;
+        renderPathErrors([{ message: '路径结果校验失败：存在凸点被遗漏或重复访问，请重试。' }]);
+        return;
+      }
+      lastPath = r;
+      pathResultDots = base.dots;
+      pathErrors.hidden = true;
+      pathPreview.innerHTML = r.svg.replace(/^<\?xml[^?]*\?>\s*/, '');
+      renderPathStats(r, base);
+      btnPathCsv.disabled = false;
+      btnPathSvg.disabled = false;
+    } else {
+      lastPath = null;
+      pathResultDots = null;
+      pathStats.hidden = true;
+      pathLegend.hidden = true;
+      pathPreview.innerHTML = '<p class="placeholder">压印路径未能生成：请根据左侧错误修正后重试（不输出部分路径）</p>';
+      renderPathErrors(r.errors || [{ message: '未知错误' }]);
+      btnPathCsv.disabled = true;
+      btnPathSvg.disabled = true;
+    }
+  }
+
+  function runPath() {
+    var base = activePathBaseline();
+    if (!base) {
+      refreshPathBaselineBox();
+      renderPathErrors([{
+        message: pathBaselineSource === 'panel'
+          ? '没有成功拼版的凸点数据，请先在「多标签拼版」完成一次成功拼版。'
+          : '没有成功排版的凸点数据，请先在「排版模式」完成排版。'
+      }]);
+      return;
+    }
+    var payload = {
+      dots: base.dots,
+      plateWidth: base.params.plateWidth,
+      plateHeight: base.params.plateHeight
+    };
+    if (pathStartMode.value === 'index') {
+      payload.startIndex = numVal(pathStartIndex);
+    } else {
+      payload.startX = numVal(pathStartX);
+      payload.startY = numVal(pathStartY);
+    }
+    fetch('/api/path', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) { return res.json(); })
+      .then(handlePathResult)
+      .catch(function () {
+        // 服务不可用时回退到浏览器内置同构实现
+        if (window.EmbossPath) {
+          try {
+            handlePathResult(EmbossPath.plan(payload));
+          } catch (e) {
+            renderPathErrors([{ message: '压印路径计算失败：' + e.message }]);
+          }
+        } else {
+          renderPathErrors([{ message: '网络请求失败，请确认服务已启动。' }]);
+        }
+      });
+  }
+
+  pathRun.addEventListener('click', runPath);
+
+  btnPathCsv.addEventListener('click', function () {
+    if (lastPath) download('embossing-path.csv', 'text/csv;charset=utf-8', lastPath.csv);
+  });
+  btnPathSvg.addEventListener('click', function () {
+    if (lastPath) download('embossing-path.svg', 'image/svg+xml;charset=utf-8', lastPath.svg);
+  });
+
+  // 基准参数变化（切到路径页时排版/拼版可能已更新）只刷新基准条，不自动重算路径
+  syncStartModeUi();
 
   /* ================= 启动 ================= */
 

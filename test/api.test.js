@@ -117,6 +117,65 @@ test('POST /api/qc 消费拼版 dots 时保留 label/rotation：baseline、pairs
   assert.match(qc.json.csv, /# summary,label_count,design_count/);
 });
 
+test('POST /api/path 成功生成压印路径：步骤数=点数、统计/CSV/SVG 齐全', async () => {
+  const res = await postJson('/api/path', {
+    dots: [
+      { x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 },
+      { x: 0, y: 5 }, { x: 5, y: 5 }, { x: 10, y: 5 },
+      { x: 0, y: 10 }, { x: 5, y: 10 }, { x: 10, y: 10 }
+    ],
+    startX: 2.5, startY: 5,
+    plateWidth: 40, plateHeight: 30
+  });
+  assert.equal(res.status, 200);
+  const r = res.json;
+  assert.equal(r.ok, true);
+  assert.equal(r.steps.length, 9);
+  assert.equal(new Set(r.order).size, 9);
+  assert.deepEqual(r.order.slice().sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.ok(r.stats.beforeTotalMm >= r.stats.afterTotalMm);
+  assert.ok(r.stats.roundsUsed >= 0 && r.stats.roundsUsed <= 20);
+  assert.match(r.csv, /^﻿step,label,x_mm,y_mm,travel_mm/);
+  assert.match(r.svg, /emboss-path-lines/);
+  assert.match(r.svg, /data-point-count="9"/);
+});
+
+test('POST /api/path 直接消费拼版顶层 dots；序号模式首步空移为 0', async () => {
+  const panel = await postJson('/api/panel', { labels: 'EXIT\nWOMEN', plateWidth: 120, plateHeight: 80 });
+  assert.equal(panel.json.ok, true);
+  const res = await postJson('/api/path', {
+    dots: panel.json.dots,
+    startIndex: 1,
+    plateWidth: 120, plateHeight: 80
+  });
+  assert.equal(res.json.ok, true);
+  assert.equal(res.json.steps.length, panel.json.dots.length);
+  assert.equal(res.json.order[0], 1);
+  assert.equal(res.json.steps[0].travelMm, 0);
+  assert.ok(res.json.steps.every(s => s.label >= 1));
+});
+
+test('POST /api/path 超过 2000 点或参数非法：ok=false 且无部分路径', async () => {
+  const tooMany = { dots: Array.from({ length: 2001 }, (_, i) => ({ x: i, y: 0 })), startX: 0, startY: 0 };
+  let r = await postJson('/api/path', tooMany);
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, false);
+  assert.ok(r.json.errors.some(e => e.type === 'too-many-points'));
+  assert.deepEqual(r.json.steps, []);
+  assert.deepEqual(r.json.order, []);
+  assert.equal(r.json.csv, null);
+  assert.equal(r.json.svg, null);
+
+  r = await postJson('/api/path', { dots: [{ x: 1, y: 1 }], startIndex: 9 });
+  assert.equal(r.json.ok, false);
+  assert.ok(r.json.errors.some(e => e.type === 'start-index'));
+  assert.equal(r.json.csv, null);
+
+  r = await postJson('/api/path', { dots: [{ x: 1, y: 1 }], startX: 0, startY: 0, startIndex: 1 });
+  assert.equal(r.json.ok, false);
+  assert.deepEqual(r.json.steps, []);
+});
+
 test('GET /api/health 健康检查正常', async () => {
   const r = await new Promise((resolve, reject) => {
     http.get(baseUrl + '/api/health', res => {
@@ -144,4 +203,9 @@ test('静态资源：/lib/panel.js 与首页可访问', async () => {
   assert.equal(page.status, 200);
   assert.match(page.body, /tabPanel/);
   assert.match(page.body, /多标签拼版/);
+  assert.match(page.body, /tabPath/);
+  assert.match(page.body, /压印路径/);
+  const pathLib = await fetchText('/lib/path.js');
+  assert.equal(pathLib.status, 200);
+  assert.match(pathLib.body, /EmbossPath|plan/);
 });

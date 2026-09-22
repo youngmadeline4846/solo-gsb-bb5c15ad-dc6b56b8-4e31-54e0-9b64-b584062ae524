@@ -9,11 +9,12 @@
 <body>
   <header>
     <h1>盲文标签排版台</h1>
-    <p class="subtitle">六点一级盲文 · 整词换行单标签排版 · 多标签行级拼版（0/90° 旋转） · 毫米坐标凸点 SVG · 压印质检</p>
+    <p class="subtitle">六点一级盲文 · 整词换行单标签排版 · 多标签行级拼版（0/90° 旋转） · 毫米坐标凸点 SVG · 压印质检 · 压印路径</p>
     <nav class="mode-tabs" role="tablist" aria-label="工作模式">
       <button id="tabLayout" class="mode-tab active" type="button" role="tab" aria-selected="true" data-mode="layout">排版模式</button>
       <button id="tabPanel" class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="panel">多标签拼版</button>
       <button id="tabQc" class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="qc">压印质检</button>
+      <button id="tabPath" class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="path">压印路径</button>
     </nav>
   </header>
 
@@ -258,6 +259,74 @@ PUSH</textarea>
         </div>
       </section>
     </section>
+
+    <!-- ========== 压印路径模式 ========== -->
+    <section id="viewPath" class="mode-view" hidden>
+      <!-- 左侧：基准与起点参数 -->
+      <section class="panel form-panel" aria-label="压印路径参数">
+        <div class="baseline-switch" role="group" aria-label="路径凸点来源">
+          <button id="pathUseLayout" type="button" class="baseline-btn active" aria-pressed="true">单标签排版基准</button>
+          <button id="pathUsePanel" type="button" class="baseline-btn" aria-pressed="false">最近拼版基准</button>
+        </div>
+        <div id="pathBaseline" class="baseline"></div>
+
+        <label class="field">
+          <span>起点方式</span>
+          <select id="pathStartMode">
+            <option value="coord">压印机坐标起点（mm，空移计入总长）</option>
+            <option value="index">指定首个凸点序号（1 基原序号，首步空移 0）</option>
+          </select>
+        </label>
+
+        <div id="pathCoordBox" class="grid-2">
+          <label class="field">
+            <span>起点 X (mm)</span>
+            <input id="pathStartX" type="number" step="0.5" value="0">
+          </label>
+          <label class="field">
+            <span>起点 Y (mm)</span>
+            <input id="pathStartY" type="number" step="0.5" value="0">
+          </label>
+        </div>
+        <div id="pathIndexBox" class="field" hidden>
+          <label class="field">
+            <span>首个凸点序号（1～凸点总数）</span>
+            <input id="pathStartIndex" type="number" min="1" step="1" value="1">
+          </label>
+        </div>
+
+        <p class="hint-inline">先用最近邻生成路线，再执行<b>最多 20 轮 2-opt</b>（每轮按下标顺序接受首个严格缩短的反转）；
+          同距离按标签索引、点坐标与原序号稳定决胜，相同输入结果一致，<b>每个凸点恰好访问一次</b>。凸点超过 2000 个或参数非法时报错，不输出部分路径。</p>
+
+        <div class="actions">
+          <button id="pathRun" type="button">生成压印路径</button>
+          <button id="pathDownloadCsv" type="button" disabled>下载作业 CSV</button>
+          <button id="pathDownloadSvg" type="button" disabled>下载路径 SVG</button>
+        </div>
+
+        <div id="pathErrors" class="errors" role="alert" hidden></div>
+        <div id="pathStats" class="stats path-stats" hidden></div>
+        <div class="legend" id="pathLegend" hidden>
+          <span><i class="line-arrow"></i>优化后路径与方向</span>
+          <span><i class="dot path-start-dot"></i>起点</span>
+          <span><b class="step-num">1</b> 步骤序号</span>
+        </div>
+      </section>
+
+      <!-- 右侧：路径预览 -->
+      <section class="panel preview-panel" aria-label="压印路径预览">
+        <div class="preview-head">
+          <h2>压印路径预览</h2>
+          <span class="panel-legend" title="路径图例">
+            <i class="swatch path-line"></i>优化后路径
+            <i class="swatch path-start"></i>起点
+          </span>
+        </div>
+        <div id="pathPreview" class="preview">
+          <p class="placeholder">先在「排版模式」或「多标签拼版」完成一次成功结果，选择基准与起点后点击「生成压印路径」</p>
+        </div>
+      </section>
+    </section>
   </main>
 
   <footer>
@@ -267,6 +336,7 @@ PUSH</textarea>
   <script src="../lib/braille.js"></script>
   <script src="../lib/panel.js"></script>
   <script src="../lib/qc.js"></script>
+  <script src="../lib/path.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
