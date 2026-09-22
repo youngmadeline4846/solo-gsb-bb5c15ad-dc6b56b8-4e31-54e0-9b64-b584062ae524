@@ -117,8 +117,95 @@ test('POST /api/qc 消费拼版 dots 时保留 label/rotation：baseline、pairs
   assert.match(qc.json.csv, /# summary,label_count,design_count/);
 });
 
-test('GET /api/health 健康检查正常', async () => {
-  const r = await new Promise((resolve, reject) => {
+test('POST /api/path 单标签排版 dots：逐点作业顺序、优化前后统计与 CSV/SVG', async () => {
+  const layout = await postJson('/api/layout', { text: 'EXIT Door 2', plateWidth: 100, plateHeight: 50 });
+  assert.equal(layout.json.ok, true);
+  const r = await postJson('/api/path', {
+    dots: layout.json.dots,
+    startX: 0, startY: 0,
+    plateWidth: 100, plateHeight: 50
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  const n = layout.json.dots.length;
+  assert.equal(r.json.pointCount, n);
+  assert.equal(r.json.steps.length, n);
+  // 每个凸点恰好访问一次：原序号是 1..n 的排列
+  assert.deepEqual(r.json.steps.map(s => s.seq).sort((a, b) => a - b),
+    Array.from({ length: n }, (_, i) => i + 1));
+  assert.deepEqual(r.json.steps.map(s => s.step), Array.from({ length: n }, (_, i) => i + 1));
+  assert.ok(r.json.steps.every(s => s.label === null));
+  const s = r.json.stats;
+  assert.ok(s.optTravelMm <= s.nnTravelMm);
+  assert.ok(s.roundsRun <= 20 && s.maxRounds === 20);
+  assert.ok(s.savedPercent >= 0 && s.savedPercent <= 100);
+  // CSV 表头与列
+  const lines = r.json.csv.replace(/^﻿/, '').split('\r\n');
+  assert.equal(lines[0], 'step,label,x_mm,y_mm,travel_mm');
+  assert.equal(lines.length, n + 1);
+  assert.match(lines[1], /^1,,/);
+  // SVG 带序号与方向
+  assert.match(r.json.svg, /class="opt-path"/);
+  assert.match(r.json.svg, /id="path-arrow"/);
+  assert.match(r.json.svg, /data-step="1"/);
+});
+
+test('POST /api/path 拼版 dots：label 列填标签索引且每标签点数一致', async () => {
+  const panel = await postJson('/api/panel', { labels: 'EXIT\nWOMEN\nMEN', plateWidth: 120, plateHeight: 80 });
+  assert.equal(panel.json.ok, true);
+  const r = await postJson('/api/path', {
+    dots: panel.json.dots,
+    startX: 2, startY: 3,
+    plateWidth: 120, plateHeight: 80
+  });
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.steps.length, panel.json.dots.length);
+  const expected = {};
+  panel.json.dots.forEach(d => { expected[d.label] = (expected[d.label] || 0) + 1; });
+  const actual = {};
+  r.json.steps.forEach(st => { actual[st.label] = (actual[st.label] || 0) + 1; });
+  assert.deepEqual(actual, expected);
+  assert.equal(r.json.stats.labelCount, 3);
+  const lines = r.json.csv.replace(/^﻿/, '').split('\r\n');
+  assert.match(lines[1], /^1,\d+,/);
+  assert.ok(lines.slice(1).every(line => line.split(',').length === 5));
+});
+
+test('POST /api/path 相同输入结果一致（两次请求 steps 完全相同）', async () => {
+  const panel = await postJson('/api/panel', { labels: 'PULL\nPUSH\nMEN', plateWidth: 120, plateHeight: 80 });
+  const payload = { dots: panel.json.dots, startX: 1, startY: 1, plateWidth: 120, plateHeight: 80 };
+  const a = await postJson('/api/path', payload);
+  const b = await postJson('/api/path', payload);
+  assert.deepEqual(a.json.steps, b.json.steps);
+});
+
+test('POST /api/path 超过 2000 个点：ok=false 且不输出部分路径', async () => {
+  const dots = Array.from({ length: 2001 }, (_, i) => ({ x: 5 + i * 0.05, y: 5 }));
+  const r = await postJson('/api/path', { dots, startX: 0, startY: 0 });
+  assert.equal(r.json.ok, false);
+  assert.equal(r.json.steps.length, 0);
+  assert.equal(r.json.svg, null);
+  assert.equal(r.json.csv, null);
+  assert.ok(r.json.errors.some(e => /2000/.test(e.message)));
+});
+
+test('POST /api/path 参数非法（缺起点/空 dots/坐标非法）明确报错', async () => {
+  const noStart = await postJson('/api/path', { dots: [{ x: 1, y: 1 }] });
+  assert.equal(noStart.json.ok, false);
+  assert.equal(noStart.json.svg, null);
+  assert.ok(noStart.json.errors.some(e => /起点/.test(e.message)));
+
+  const empty = await postJson('/api/path', { dots: [], startX: 0, startY: 0 });
+  assert.equal(empty.json.ok, false);
+  assert.equal(empty.json.steps.length, 0);
+
+  const badDot = await postJson('/api/path', { dots: [{ x: 'oops', y: 1 }], startX: 0, startY: 0 });
+  assert.equal(badDot.json.ok, false);
+  assert.equal(badDot.json.csv, null);
+  assert.ok(badDot.json.errors.some(e => /第 1 个凸点坐标非法/.test(e.message)));
+});
+
+test('GET /api/health 健康检查正常', async () => {  const r = await new Promise((resolve, reject) => {
     http.get(baseUrl + '/api/health', res => {
       let data = '';
       res.on('data', c => { data += c; });
@@ -140,8 +227,12 @@ test('静态资源：/lib/panel.js 与首页可访问', async () => {
   const lib = await fetchText('/lib/panel.js');
   assert.equal(lib.status, 200);
   assert.match(lib.body, /packLabels/);
+  const pathLib = await fetchText('/lib/path.js');
+  assert.equal(pathLib.status, 200);
+  assert.match(pathLib.body, /planPath/);
   const page = await fetchText('/');
   assert.equal(page.status, 200);
   assert.match(page.body, /tabPanel/);
   assert.match(page.body, /多标签拼版/);
+  assert.match(page.body, /压印路径/);
 });

@@ -102,6 +102,8 @@
       .then(function (r) {
         if (r.ok) {
           lastResult = r;
+          // 排版结果已变化：旧压印路径与新凸点集不再对应，作废待重新生成
+          invalidateLayoutPath();
           // 质检基准：记录最近一次成功排版（含时间戳与完整参数）
           lastBaseline = {
             time: fmtTime(new Date()),
@@ -119,6 +121,7 @@
           if (!viewQc.hidden) refreshBaselineBox();
         } else {
           lastResult = null;
+          invalidateLayoutPath();
           statsBox.hidden = true;
           brailleLine.textContent = '';
           preview.innerHTML = '<p class="placeholder">排版失败：请根据左侧原因调整参数</p>';
@@ -129,6 +132,7 @@
       })
       .catch(function () {
         lastResult = null;
+        invalidateLayoutPath();
         statsBox.hidden = true;
         preview.innerHTML = '<p class="placeholder">无法连接服务器</p>';
         renderErrors([{ message: '网络请求失败，请确认服务已启动。' }]);
@@ -257,6 +261,8 @@
   function handlePanelResult(r) {
     if (r.ok) {
       lastPanel = r;
+      // 拼版结果已变化：旧压印路径与新凸点集不再对应，作废待重新生成
+      invalidatePanelPath();
       // 质检拼版基准：记录最近一次成功拼版（含时间戳、标签索引/旋转角与带元数据的全局 dots）
       lastPanelBaseline = {
         time: fmtTime(new Date()),
@@ -277,6 +283,7 @@
       if (!viewQc.hidden) refreshBaselineBox();
     } else {
       lastPanel = null;
+      invalidatePanelPath();
       panelStatsBox.hidden = true;
       renderPanelErrors(r.errors || [{ message: '未知错误' }]);
       btnPanelSvg.disabled = true;
@@ -632,6 +639,170 @@
   btnQcSvg.addEventListener('click', function () {
     if (lastQc) download('embossing-qc-overlay.svg', 'image/svg+xml;charset=utf-8', lastQc.svg);
   });
+
+  /* ================= 压印路径（单标签 + 拼版共用） ================= */
+
+  // 两个页签各有一套压印路径控件；此工厂封装与“最近成功结果”绑定的全部行为
+  function createPathTool(opts) {
+    var startXEl = document.getElementById(opts.startXId);
+    var startYEl = document.getElementById(opts.startYId);
+    var genBtn = document.getElementById(opts.genId);
+    var csvBtn = document.getElementById(opts.csvId);
+    var errBox = document.getElementById(opts.errId);
+    var statBox = document.getElementById(opts.statId);
+    var previewWrap = document.getElementById(opts.wrapId);
+    var previewBox = document.getElementById(opts.previewId);
+
+    var timer = null;
+    var lastPath = null; // 最近一次成功路径（用于下载 CSV）
+
+    function renderErrors(errors) {
+      errBox.innerHTML = '';
+      var ul = document.createElement('ul');
+      errors.forEach(function (e) {
+        var li = document.createElement('li');
+        li.textContent = e.message;
+        ul.appendChild(li);
+      });
+      errBox.appendChild(ul);
+      errBox.hidden = false;
+    }
+
+    function renderStats(r) {
+      var s = r.stats;
+      var labelInfo = s.labelCount > 0 ? '覆盖 <b>' + s.labelCount + '</b> 个标签、' : '';
+      statBox.innerHTML =
+        '共 <b>' + s.pointCount + '</b> 个凸点，' + labelInfo +
+        '优化前空移 <b>' + s.nnTravelMm + '</b> mm → 优化后 <b>' + s.optTravelMm +
+        '</b> mm（2-opt 执行 <b>' + s.roundsRun + '</b>/' + s.maxRounds + ' 轮）<br>' +
+        '节省 <b class="saved">' + s.savedMm + '</b> mm，节省比例 <b class="saved">' +
+        s.savedPercent + '%</b>';
+      statBox.hidden = false;
+    }
+
+    // 重新排版/拼版后旧路径立即失效：清空预览与下载，等用户重新生成
+    function invalidate(placeholder) {
+      lastPath = null;
+      clearTimeout(timer);
+      csvBtn.disabled = true;
+      statBox.hidden = true;
+      errBox.hidden = true;
+      previewWrap.hidden = true;
+      previewBox.innerHTML = '<p class="placeholder">' + placeholder + '</p>';
+    }
+
+    function handleResult(r) {
+      if (r.ok) {
+        lastPath = r;
+        errBox.hidden = true;
+        previewWrap.hidden = false;
+        previewBox.innerHTML = r.svg.replace(/^<\?xml[^?]*\?>\s*/, '');
+        renderStats(r);
+        csvBtn.disabled = false;
+      } else {
+        lastPath = null;
+        statBox.hidden = true;
+        csvBtn.disabled = true;
+        previewWrap.hidden = true;
+        renderErrors(r.errors || [{ message: '未知错误' }]);
+      }
+    }
+
+    function run() {
+      var src = opts.source();
+      if (!src || !src.dots || !src.dots.length) {
+        handleResult({ ok: false, errors: [{ message: '请先完成一次成功的排版/拼版，再生成压印路径。' }] });
+        return;
+      }
+      var sx = startXEl.value.trim();
+      var sy = startYEl.value.trim();
+      if (sx === '' || sy === '' || !isFinite(Number(sx)) || !isFinite(Number(sy))) {
+        handleResult({ ok: false, errors: [{ message: '起点 X / Y 坐标必须填写为数字（mm）。' }] });
+        return;
+      }
+      var payload = {
+        dots: src.dots,
+        startX: Number(sx),
+        startY: Number(sy),
+        plateWidth: src.plateWidth,
+        plateHeight: src.plateHeight
+      };
+      fetch('/api/path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (res) { return res.json(); })
+        .then(handleResult)
+        .catch(function () {
+          // 服务不可用时回退到浏览器内置同构实现
+          if (window.EmbossPath) {
+            try {
+              handleResult(EmbossPath.planPath(payload));
+            } catch (e) {
+              handleResult({ ok: false, errors: [{ message: '压印路径计算失败：' + e.message }] });
+            }
+          } else {
+            handleResult({ ok: false, errors: [{ message: '网络请求失败，请确认服务已启动。' }] });
+          }
+        });
+    }
+
+    genBtn.addEventListener('click', run);
+    csvBtn.addEventListener('click', function () {
+      if (lastPath) download(opts.csvName, 'text/csv;charset=utf-8', lastPath.csv);
+    });
+    // 修改起点且已有路径结果时防抖重算；尚未生成过时不自动请求
+    [startXEl, startYEl].forEach(function (el) {
+      el.addEventListener('input', function () {
+        if (!lastPath) return;
+        clearTimeout(timer);
+        timer = setTimeout(run, 300);
+      });
+    });
+
+    return { invalidate: invalidate, run: run };
+  }
+
+  // 单标签排版页签：数据来源为最近一次成功排版
+  var layoutPathTool = createPathTool({
+    startXId: 'pathStartX', startYId: 'pathStartY',
+    genId: 'pathGenerate', csvId: 'pathDownloadCsv',
+    errId: 'pathErrors', statId: 'pathStats',
+    wrapId: 'pathPreviewWrap', previewId: 'pathPreview',
+    csvName: 'embossing-path.csv',
+    source: function () {
+      return lastResult ? {
+        dots: lastResult.dots,
+        plateWidth: lastResult.params.plateWidth,
+        plateHeight: lastResult.params.plateHeight
+      } : null;
+    }
+  });
+
+  // 多标签拼版页签：数据来源为最近一次成功拼版（dots 含 label 元数据）
+  var panelPathTool = createPathTool({
+    startXId: 'panelPathStartX', startYId: 'panelPathStartY',
+    genId: 'panelPathGenerate', csvId: 'panelPathDownloadCsv',
+    errId: 'panelPathErrors', statId: 'panelPathStats',
+    wrapId: 'panelPathPreviewWrap', previewId: 'panelPathPreview',
+    csvName: 'embossing-panel-path.csv',
+    source: function () {
+      return lastPanel ? {
+        dots: lastPanel.dots,
+        plateWidth: lastPanel.params.plateWidth,
+        plateHeight: lastPanel.params.plateHeight
+      } : null;
+    }
+  });
+
+  // 排版结果变化时使旧路径失效（成功 -> 等待重新生成；失败 -> 同样清空）
+  function invalidateLayoutPath() {
+    layoutPathTool.invalidate('排版参数已变化，请重新点击「生成压印路径」');
+  }
+  function invalidatePanelPath() {
+    panelPathTool.invalidate('拼版参数已变化，请重新点击「生成压印路径」');
+  }
 
   /* ================= 启动 ================= */
 

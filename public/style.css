@@ -372,3 +372,58 @@ footer {
 @media (max-width: 860px) {
   .form-panel { width: 100%; }
 }
+
+/* 压印路径 */
+.path-box {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px 12px;
+  margin-top: 14px;
+}
+.path-box h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.path-box .hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+/* actions 内的次级按钮复用弹性布局，不沿用校准区的 width:100% */
+.path-box .actions button.btn-secondary {
+  flex: 1;
+  width: auto;
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.path-box .actions button.btn-secondary:hover:not(:disabled) { background: #eff6ff; }
+.path-stats {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+.path-stats b { font-weight: 700; }
+.path-stats .saved { color: #15803d; }
+
+.path-preview-wrap { width: 100%; margin-top: 14px; }
+.path-preview { align-items: flex-start; }
+.path-legend {
+  font-size: 12px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.path-legend .swatch {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  vertical-align: middle;
+  margin: 0 3px 0 8px;
+}
+.path-legend .swatch.nn { border-top: 2px dashed #9ca3af; }
+.path-legend .swatch.opt { border-top: 3px solid #2563eb; }

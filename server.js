@@ -5,6 +5,7 @@
  *   POST /api/panel          多标签拼版（逐条复用单标签盲文转换 + 二维行级装箱）
  *   POST /api/qc             压印质检
  *   POST /api/qc/calibrate   质检自动校准
+ *   POST /api/path           压印路径（最近邻 + 2-opt，输出逐点作业顺序 / CSV / 叠加 SVG）
  */
 'use strict';
 
@@ -13,6 +14,7 @@ const express = require('express');
 const Braille = require('./lib/braille');
 const QC = require('./lib/qc');
 const Panel = require('./lib/panel');
+const EmbossPath = require('./lib/path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,6 +97,21 @@ app.post('/api/qc/calibrate', (req, res) => {
 // 健康检查（容器编排用）
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'braille-label-studio', time: new Date().toISOString() });
+});
+
+// 压印路径接口：以最近一次成功排版/拼版的 dots 为输入，从用户指定起点出发，
+// 最近邻生成初始路线后执行最多 20 轮 2-opt，返回逐点作业顺序、优化前后空移统计、
+// 叠加 SVG（带 step 序号与方向箭头）与可下载 CSV；点数超 2000 或参数非法时只报错
+app.post('/api/path', (req, res) => {
+  const body = req.body || {};
+  const result = EmbossPath.planPath({
+    dots: body.dots,
+    startX: body.startX,
+    startY: body.startY,
+    plateWidth: body.plateWidth,
+    plateHeight: body.plateHeight
+  });
+  res.json(result);
 });
 
 // 未匹配 API 返回 404 JSON

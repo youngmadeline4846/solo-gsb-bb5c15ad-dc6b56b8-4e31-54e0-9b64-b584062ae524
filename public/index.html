@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>盲文标签排版台</h1>
-    <p class="subtitle">六点一级盲文 · 整词换行单标签排版 · 多标签行级拼版（0/90° 旋转） · 毫米坐标凸点 SVG · 压印质检</p>
+    <p class="subtitle">六点一级盲文 · 整词换行单标签排版 · 多标签行级拼版（0/90° 旋转） · 毫米坐标凸点 SVG · 压印路径（最近邻 + 2-opt） · 压印质检</p>
     <nav class="mode-tabs" role="tablist" aria-label="工作模式">
       <button id="tabLayout" class="mode-tab active" type="button" role="tab" aria-selected="true" data-mode="layout">排版模式</button>
       <button id="tabPanel" class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="panel">多标签拼版</button>
@@ -73,6 +73,27 @@
           <button id="downloadSvg" type="button" disabled>下载 SVG</button>
           <button id="downloadJson" type="button" disabled>下载排版 JSON</button>
         </div>
+
+        <section class="path-box" aria-label="压印路径（单标签）">
+          <h3>压印路径</h3>
+          <div class="grid-2">
+            <label class="field">
+              <span>起点 X (mm)</span>
+              <input id="pathStartX" type="number" step="0.5" value="0">
+            </label>
+            <label class="field">
+              <span>起点 Y (mm)</span>
+              <input id="pathStartY" type="number" step="0.5" value="0">
+            </label>
+          </div>
+          <div class="actions">
+            <button id="pathGenerate" type="button" class="btn-secondary">生成压印路径</button>
+            <button id="pathDownloadCsv" type="button" disabled>下载压印 CSV</button>
+          </div>
+          <div id="pathErrors" class="errors" role="alert" hidden></div>
+          <div id="pathStats" class="stats path-stats" hidden></div>
+          <p class="hint">以当前排版凸点为输入，从指定起点先用最近邻生成路线，再执行最多 20 轮 2-opt（每轮按起止下标顺序接受首个严格缩短的反转）；每个凸点恰好访问一次，点数上限 2000，参数非法时不输出部分路径。</p>
+        </section>
       </section>
 
       <!-- 右侧：实时预览 -->
@@ -83,6 +104,13 @@
         </div>
         <div id="preview" class="preview">
           <p class="placeholder">输入参数后此处显示带毫米坐标的凸点 SVG 预览</p>
+        </div>
+        <div id="pathPreviewWrap" class="path-preview-wrap" hidden>
+          <div class="preview-head">
+            <h2>压印路径预览</h2>
+            <span class="path-legend"><i class="swatch nn"></i>最近邻初始路线　<i class="swatch opt"></i>优化后路线（箭头为方向，数字为 step）</span>
+          </div>
+          <div id="pathPreview" class="preview path-preview"></div>
         </div>
       </section>
     </section>
@@ -151,6 +179,27 @@ PUSH</textarea>
           <button id="panelDownloadSvg" type="button" disabled>下载拼版 SVG</button>
           <button id="panelDownloadJson" type="button" disabled>下载拼版 JSON</button>
         </div>
+
+        <section class="path-box" aria-label="压印路径（拼版）">
+          <h3>压印路径</h3>
+          <div class="grid-2">
+            <label class="field">
+              <span>起点 X (mm)</span>
+              <input id="panelPathStartX" type="number" step="0.5" value="0">
+            </label>
+            <label class="field">
+              <span>起点 Y (mm)</span>
+              <input id="panelPathStartY" type="number" step="0.5" value="0">
+            </label>
+          </div>
+          <div class="actions">
+            <button id="panelPathGenerate" type="button" class="btn-secondary">生成压印路径</button>
+            <button id="panelPathDownloadCsv" type="button" disabled>下载压印 CSV</button>
+          </div>
+          <div id="panelPathErrors" class="errors" role="alert" hidden></div>
+          <div id="panelPathStats" class="stats path-stats" hidden></div>
+          <p class="hint">以当前拼版全部凸点为输入（保留标签索引决胜），从指定起点先最近邻、再最多 20 轮 2-opt；每个凸点恰好压印一次，点数上限 2000。</p>
+        </section>
       </section>
 
       <!-- 右侧：整板预览 -->
@@ -165,6 +214,13 @@ PUSH</textarea>
         </div>
         <div id="panelPreview" class="preview">
           <p class="placeholder">每行输入一条英文标签后，此处显示全部标签边界与凸点的整板预览</p>
+        </div>
+        <div id="panelPathPreviewWrap" class="path-preview-wrap" hidden>
+          <div class="preview-head">
+            <h2>压印路径预览</h2>
+            <span class="path-legend"><i class="swatch nn"></i>最近邻初始路线　<i class="swatch opt"></i>优化后路线（箭头为方向，数字为 step）</span>
+          </div>
+          <div id="panelPathPreview" class="preview path-preview"></div>
         </div>
       </section>
     </section>
@@ -267,6 +323,7 @@ PUSH</textarea>
   <script src="../lib/braille.js"></script>
   <script src="../lib/panel.js"></script>
   <script src="../lib/qc.js"></script>
+  <script src="../lib/path.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
